@@ -1,0 +1,852 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Host Scan</title>
+<style>
+  :root {
+    --bg: #14171c; --panel: #1b1f26; --panel2: #222832; --line: #2e3542;
+    --text: #d8dee9; --muted: #8b95a7; --accent: #4c9aff; --ok: #3fb950;
+    --warn: #d29922; --bad: #f85149;
+    --l4: #8b95a7; --l5: #c38bff; --l6: #f0a35e; --l7: #4cc38a;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 13px/1.4 "Segoe UI", system-ui, sans-serif; height: 100vh;
+         display: grid; grid-template-rows: auto auto 1fr; grid-template-columns: minmax(0, 1fr);
+         overflow: hidden; }
+  button, input, select { font: inherit; color: inherit; background: var(--panel2);
+         border: 1px solid var(--line); border-radius: 5px; padding: 5px 10px; }
+  button { cursor: pointer; } button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.danger { background: var(--bad); border-color: var(--bad); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+
+  header { display: flex; gap: 10px; align-items: center; padding: 8px 14px;
+           background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; }
+  header select { max-width: 340px; }
+  #stats { margin-left: auto; color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+         background: var(--muted); margin-right: 6px; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 6px var(--ok); }
+
+  #notice { padding: 6px 14px; background: #2a2414; color: #e3c77a; font-size: 12px;
+            border-bottom: 1px solid var(--line); }
+  #notice.error { background: #2d1517; color: #ff9b95; }
+
+  main { display: grid; grid-template-columns: 300px minmax(0, 1fr); min-height: 0; }
+  aside { border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+  .side-head { padding: 10px; border-bottom: 1px solid var(--line); display: flex;
+               gap: 8px; align-items: center; flex-wrap: wrap; }
+  .side-head h2 { font-size: 13px; margin: 0; flex: 1; }
+  .side-sub { width: 100%; color: var(--muted); font-size: 12px; display: flex; gap: 10px; }
+  .side-sub a { color: var(--accent); cursor: pointer; }
+  #hosts { overflow: auto; flex: 1; }
+  .host { display: flex; gap: 8px; padding: 7px 10px; border-bottom: 1px solid var(--line);
+          cursor: pointer; align-items: flex-start; }
+  .host:hover { background: var(--panel); }
+  .host.sel { background: #1d2a3d; }
+  .host input { margin-top: 3px; }
+  .host .ip { font-family: Consolas, monospace; font-weight: 600; }
+  .host .meta { color: var(--muted); font-size: 12px; word-break: break-all; }
+  .badge { font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: 4px;
+           background: var(--panel2); border: 1px solid var(--line); color: var(--muted); }
+  .badge.me { color: var(--accent); border-color: var(--accent); }
+  .badge.gw { color: var(--warn); border-color: var(--warn); }
+
+  section { display: flex; flex-direction: column; min-height: 0; }
+  .filters { padding: 8px 12px; border-bottom: 1px solid var(--line); display: flex;
+             flex-direction: column; gap: 8px; background: var(--panel); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .row label.t { color: var(--muted); width: 74px; }
+  .chip { padding: 2px 9px; border-radius: 12px; border: 1px solid var(--line);
+          background: var(--panel2); cursor: pointer; user-select: none; font-size: 12px; }
+  .chip.on { color: #111; font-weight: 600; }
+  .chip[data-l="4"].on { background: var(--l4); border-color: var(--l4); }
+  .chip[data-l="5"].on { background: var(--l5); border-color: var(--l5); }
+  .chip[data-l="6"].on { background: var(--l6); border-color: var(--l6); }
+  .chip[data-l="7"].on { background: var(--l7); border-color: var(--l7); }
+  .chip .ln { opacity: .6; margin-right: 4px; }
+  #protoChips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; }
+  #ports { width: 200px; } #search { width: 240px; }
+  .clear-f { color: var(--accent); cursor: pointer; font-size: 12px; }
+
+  .table-wrap { overflow: auto; flex: 1; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th { position: sticky; top: 0; background: var(--panel2); text-align: left; padding: 6px 8px;
+       border-bottom: 1px solid var(--line); cursor: pointer; white-space: nowrap; color: var(--muted); }
+  th.sorted { color: var(--text); }
+  td { padding: 4px 8px; border-bottom: 1px solid #222833; white-space: nowrap; }
+  td.mono { font-family: Consolas, monospace; }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  td .name { color: var(--muted); font-family: "Segoe UI", sans-serif; margin-left: 4px; }
+  td.info { max-width: 320px; overflow: hidden; text-overflow: ellipsis; }
+  tr:hover td { background: #1f2530; }
+  .ptag { padding: 1px 6px; border-radius: 3px; color: #111; font-weight: 600; font-size: 11px; }
+  .ptag[data-l="4"] { background: var(--l4); } .ptag[data-l="5"] { background: var(--l5); }
+  .ptag[data-l="6"] { background: var(--l6); } .ptag[data-l="7"] { background: var(--l7); }
+  .st-ÉTABLIE { color: var(--ok); } .st-RESET { color: var(--bad); }
+  .st-FERMÉE { color: var(--muted); } .st-SYN { color: var(--warn); }
+  .empty { padding: 40px; text-align: center; color: var(--muted); }
+  footer { padding: 4px 12px; color: var(--muted); font-size: 12px; border-top: 1px solid var(--line); }
+  #rows tr { cursor: pointer; }
+  #rows tr.active td { background: #1d2a3d; }
+  .host.active { box-shadow: inset 3px 0 0 var(--accent); }
+
+  /* ---- panneau de détails ---- */
+  #drawer { position: fixed; top: 0; right: 0; bottom: 0; width: min(500px, 100vw); z-index: 10;
+            background: var(--panel); border-left: 1px solid var(--line);
+            box-shadow: -8px 0 24px rgba(0,0,0,.35); display: flex; flex-direction: column; }
+  #drawer[hidden] { display: none; }
+  .dr-head { display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+             border-bottom: 1px solid var(--line); }
+  .dr-head h3 { margin: 0; font-size: 14px; flex: 1; font-family: Consolas, monospace;
+                overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #drBody { overflow: auto; padding: 4px 14px 20px; flex: 1; }
+  .dsec { margin-top: 14px; }
+  .dsec h4 { margin: 0 0 6px; font-size: 11px; text-transform: uppercase; letter-spacing: .06em;
+             color: var(--muted); }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 3px 10px; }
+  .kv dt { color: var(--muted); } .kv dd { margin: 0; word-break: break-word; }
+  .mono { font-family: Consolas, monospace; }
+  .desc { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  .scope { font-size: 10px; padding: 0 5px; border-radius: 3px; border: 1px solid var(--line);
+           color: var(--muted); margin-left: 4px; white-space: nowrap; }
+  .scope.Internet { color: var(--l6); border-color: var(--l6); }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .actions button, .actions a { font-size: 12px; padding: 3px 9px; }
+  .actions a { color: var(--accent); border: 1px solid var(--line); border-radius: 5px;
+               text-decoration: none; background: var(--panel2); }
+  .mini { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .mini td, .mini th { padding: 3px 6px; border-bottom: 1px solid #262c37; text-align: left;
+                       position: static; background: none; cursor: default; }
+  .mini th { color: var(--muted); font-weight: normal; }
+  .mini .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .mini tr.pk { cursor: pointer; } .mini tr.pk:hover td { background: #1f2530; }
+  .dir-out { color: var(--accent); } .dir-in { color: var(--l7); }
+  .hexdump { font: 11px/1.45 Consolas, monospace; white-space: pre; background: var(--bg);
+             padding: 6px 8px; border-radius: 4px; overflow-x: auto; color: var(--text); }
+  .bar { height: 6px; background: var(--panel2); border-radius: 3px; overflow: hidden; margin-top: 2px; }
+  .bar span { display: block; height: 100%; }
+  .muted { color: var(--muted); }
+
+  /* ---- menu Exporter ---- */
+  .menu { position: relative; }
+  .menu summary { list-style: none; cursor: pointer; padding: 5px 10px; border: 1px solid var(--line);
+                  border-radius: 5px; background: var(--panel2); }
+  .menu summary::-webkit-details-marker { display: none; }
+  .menu summary::after { content: " ▾"; color: var(--muted); }
+  .menu-list { position: absolute; top: calc(100% + 4px); left: 0; z-index: 20; min-width: 270px;
+               background: var(--panel2); border: 1px solid var(--line); border-radius: 6px;
+               padding: 4px; display: flex; flex-direction: column; box-shadow: 0 8px 20px rgba(0,0,0,.4); }
+  .menu-list button { border: none; text-align: left; background: none; padding: 6px 10px; }
+  .menu-list button:hover { background: var(--panel); }
+
+  /* ---- graphique de débit ---- */
+  #chartPanel { border-bottom: 1px solid var(--line); background: var(--panel); }
+  .chart-head { display: flex; align-items: center; gap: 10px; padding: 4px 12px; flex-wrap: wrap; }
+  .linkish { background: none; border: none; padding: 2px 0; font-weight: 600; }
+  .chart-ctrl { margin-left: auto; display: flex; gap: 6px; }
+  .chart-ctrl select { padding: 2px 6px; font-size: 12px; }
+  #chartBody { padding: 0 12px 8px; position: relative; }
+  #chartBody[hidden] { display: none; }
+  #chart { height: 150px; position: relative; }
+  #chart svg { display: block; width: 100%; height: 100%; }
+  #chart .grid { stroke: #2c2c2a; stroke-width: 1; }
+  #chart .axis { stroke: #383835; stroke-width: 1; }
+  #chart text { fill: #898781; font-size: 10px; font-variant-numeric: tabular-nums; }
+  #chart .band { stroke: var(--panel); stroke-width: 1; }
+  #chart .cross { stroke: var(--text); stroke-width: 1; opacity: .5; }
+  #chartTip { position: absolute; pointer-events: none; background: var(--panel2); border: 1px solid var(--line);
+              border-radius: 6px; padding: 6px 9px; font-size: 12px; white-space: nowrap; z-index: 5;
+              box-shadow: 0 6px 16px rgba(0,0,0,.35); }
+  #chartTip .sw, #chartLegend .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+                                     margin-right: 6px; vertical-align: -1px; }
+  #chartTip .v { float: right; margin-left: 14px; font-variant-numeric: tabular-nums; }
+  #chartLegend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--text);
+                 margin-top: 4px; }
+  #chartEmpty { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+                color: var(--muted); }
+
+  /* ---- fenêtre « Suivre le flux » ---- */
+  #streamModal { position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 30; display: flex;
+                 align-items: center; justify-content: center; padding: 24px; }
+  #streamModal[hidden] { display: none; }
+  .sm-box { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; width: min(1100px, 100%);
+            height: 100%; display: flex; flex-direction: column; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+  .sm-head { display: flex; align-items: center; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+  .sm-head h3 { margin: 0; flex: 1; font: 600 14px Consolas, monospace; }
+  .sm-tools { display: flex; gap: 12px; align-items: center; padding: 8px 14px; flex-wrap: wrap;
+              border-bottom: 1px solid var(--line); }
+  .sm-tools label { color: var(--muted); } .sm-tools select { margin-left: 4px; }
+  #smStats { flex: 1; }
+  #smBody { overflow: auto; flex: 1; padding: 10px 14px; background: var(--bg); user-select: text; }
+  .chunk { font: 12px/1.45 Consolas, monospace; white-space: pre-wrap; word-break: break-all;
+           margin: 0 0 2px; padding: 2px 8px; border-left: 3px solid; }
+  .chunk.out { color: #ff9b95; border-color: #e66767; }
+  .chunk.in { color: #9ec5f4; border-color: #3987e5; }
+  .chunk.gap { color: var(--muted); border-color: var(--line); font-style: italic; }
+  .sm-legend .out { color: #ff9b95; } .sm-legend .in { color: #9ec5f4; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Host Scan</h1>
+  <select id="iface" title="Interface réseau"></select>
+  <button id="btnIfaces" title="Actualiser la liste des cartes réseau (après avoir activé un point d'accès, par exemple)">↻</button>
+  <input id="bpf" placeholder="Filtre BPF optionnel (ex : not port 5000)" style="width:250px">
+  <button id="btnStart" class="primary">▶ Capturer</button>
+  <button id="btnStop" class="danger" disabled>■ Arrêter</button>
+  <button id="btnClear">Vider</button>
+  <button id="btnOpen" title="Ouvrir un fichier .pcap ou .pcapng (Wireshark, tcpdump…)">Ouvrir…</button>
+  <input type="file" id="fileInput" accept=".pcap,.pcapng,.cap" hidden>
+  <details class="menu" id="exportMenu"><summary>Exporter</summary>
+    <div class="menu-list">
+      <button data-export="all">Toute la capture (.pcap)</button>
+      <button data-export="filtered">Connexions affichées, avec les filtres (.pcap)</button>
+    </div>
+  </details>
+  <span id="stats"><span class="dot" id="dot"></span><span id="statsText">Capture arrêtée</span></span>
+</header>
+<div id="notice">Sur un réseau commuté (box, switch, Wi-Fi), votre PC ne reçoit que son propre trafic et le broadcast/multicast des autres appareils. Pour voir toutes les connexions d'un autre appareil, il faut que son trafic passe par ce PC (port miroir, capture sur la box, point d'accès sur ce PC…).</div>
+<main>
+  <aside>
+    <div class="side-head">
+      <h2>Appareils</h2>
+      <button id="btnScan">Scanner le réseau</button>
+      <div class="side-sub"><span id="netInfo">Aucun scan</span>
+        <a id="selAll">tous</a><a id="selNone">aucun</a></div>
+    </div>
+    <div id="hosts"><div class="empty">Lancez un scan pour lister les appareils.</div></div>
+  </aside>
+  <section>
+    <div class="filters">
+      <div class="row"><label class="t">Couches</label>
+        <span class="chip" data-l="4" data-layer="4">L4 Transport</span>
+        <span class="chip" data-l="5" data-layer="5">L5 Session</span>
+        <span class="chip" data-l="6" data-layer="6">L6 Présentation</span>
+        <span class="chip" data-l="7" data-layer="7">L7 Application</span>
+      </div>
+      <div class="row"><label class="t">Protocoles</label><div id="protoChips"></div></div>
+      <div class="row"><label class="t">Ports</label>
+        <input id="ports" placeholder="ex : 53,443,8000-8100">
+        <input id="search" placeholder="Rechercher (IP, nom, SNI…)">
+        <span class="clear-f" id="resetFilters">réinitialiser les filtres</span>
+      </div>
+    </div>
+    <div id="chartPanel">
+      <div class="chart-head">
+        <button id="chartToggle" class="linkish" aria-expanded="true">▾ Débit</button>
+        <span id="chartSummary" class="muted"></span>
+        <span class="chart-ctrl">
+          <select id="chartWindow" title="Période affichée">
+            <option value="60">1 min</option><option value="300" selected>5 min</option>
+            <option value="900">15 min</option><option value="3600">1 h</option><option value="0">Tout</option>
+          </select>
+          <select id="chartBy" title="Découpage">
+            <option value="proto">par protocole</option><option value="host">par appareil</option>
+          </select>
+        </span>
+      </div>
+      <div id="chartBody"><div id="chart"></div><div id="chartLegend"></div></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr id="thead"></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="emptyRows">Aucune connexion. Démarrez la capture.</div>
+    </div>
+    <footer id="footer"></footer>
+  </section>
+</main>
+<div id="drawer" hidden>
+  <div class="dr-head"><h3 id="drTitle"></h3><button id="drClose" title="Fermer (Échap)">✕</button></div>
+  <div id="drBody"></div>
+</div>
+<div id="streamModal" hidden>
+  <div class="sm-box" role="dialog" aria-labelledby="smTitle">
+    <div class="sm-head"><h3 id="smTitle"></h3><button id="smClose" title="Fermer (Échap)">✕</button></div>
+    <div class="sm-tools">
+      <label>Affichage<select id="smView"><option value="text">Texte</option><option value="hex">Hexadécimal</option></select></label>
+      <label>Sens<select id="smDir"><option value="both">Les deux</option>
+        <option value="out">Client → serveur</option><option value="in">Serveur → client</option></select></label>
+      <span id="smStats" class="muted"></span>
+      <button id="smCopy">Copier</button>
+    </div>
+    <div id="smBody"></div>
+  </div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const api = (url, body) => fetch(url, body === undefined ? {} :
+  {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then(r => r.json());
+
+const ui = { hosts: [], selected: new Set(), layers: new Set(), protos: new Set(),
+             sort: {key: "last", dir: -1}, knownProtos: [] };
+
+const COLS = [
+  ["proto", "Protocole"], ["l4", "L4"], ["src", "Source"], ["sport", "Port src"],
+  ["dst", "Destination"], ["dport", "Port dst"], ["info", "Info (SNI / Host / DNS)"],
+  ["state", "État"], ["packets", "Paquets"], ["bytes", "Octets"], ["last", "Vu il y a"],
+];
+
+function fmtBytes(n) { const u = ["o","Ko","Mo","Go"]; let i = 0;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; } return (i ? n.toFixed(1) : n) + " " + u[i]; }
+function fmtAgo(s) { s = Math.max(0, Math.round(s)); return s < 60 ? s + " s" : s < 3600 ? Math.round(s/60) + " min" : Math.round(s/3600) + " h"; }
+// Le tableau, la liste et le panneau sont redessinés toutes les 1,5 s : on
+// saute le rafraîchissement pendant qu'une sélection de texte y est active,
+// sinon elle disparaît avant qu'on ait pu la copier.
+function selectingIn(el) {
+  const sel = window.getSelection();
+  return !!sel && !sel.isCollapsed && el.contains(sel.anchorNode);
+}
+const hasSelection = () => !!window.getSelection()?.toString();
+function notice(msg, isError) { const n = $("#notice"); if (msg) { n.textContent = msg; } n.classList.toggle("error", !!isError); }
+
+// ---- interfaces & capture -------------------------------------------------
+async function loadIfaces() {
+  const current = $("#iface").value;
+  const list = await api("/api/interfaces");
+  const keep = list.some(i => i.name === current);
+  $("#iface").innerHTML = list.map(i => `<option value="${esc(i.name)}" ${(keep ? i.name === current : i.default) ? "selected" : ""}>${esc(i.label)}</option>`).join("");
+}
+$("#btnIfaces").onclick = loadIfaces;
+$("#btnStart").onclick = async () => {
+  const r = await api("/api/capture/start", {iface: $("#iface").value, bpf: $("#bpf").value.trim()});
+  if (!r.ok) notice("Capture impossible : " + (r.error || "erreur inconnue") +
+    " — lancez le programme en administrateur et vérifiez que Npcap est installé.", true);
+  refreshConnections();
+};
+$("#btnStop").onclick = async () => { await api("/api/capture/stop", {}); refreshConnections(); };
+$("#btnClear").onclick = async () => { await api("/api/capture/clear", {}); refreshConnections(); };
+
+// ---- hôtes ---------------------------------------------------------------
+$("#btnScan").onclick = async () => { await api("/api/scan", {iface: $("#iface").value}); pollHosts(); };
+$("#selAll").onclick = () => { ui.hosts.forEach(h => ui.selected.add(h.ip)); renderHosts(); refreshConnections(); };
+$("#selNone").onclick = () => { ui.selected.clear(); renderHosts(); refreshConnections(); };
+
+async function pollHosts() {
+  const r = await api("/api/hosts");
+  ui.hosts = r.hosts;
+  $("#btnScan").disabled = r.scanning;
+  $("#btnScan").textContent = r.scanning ? "Scan en cours…" : "Scanner le réseau";
+  $("#netInfo").textContent = r.network ? `${r.network} · ${r.hosts.length} appareil(s)`
+    : r.scanning ? "Scan…" : r.hosts.length ? `${r.hosts.length} appareil(s) vus dans la capture` : "Aucun scan";
+  if (r.error) notice("Erreur de scan : " + r.error, true);
+  renderHosts();
+  if (r.scanning) setTimeout(pollHosts, 700);
+}
+
+function renderHosts() {
+  if (!ui.hosts.length || selectingIn($("#hosts"))) return;
+  $("#hosts").innerHTML = ui.hosts.map(h => {
+    const sel = ui.selected.has(h.ip);
+    const badges = (h.is_self ? '<span class="badge me">ce PC</span>' : "") +
+                   (h.is_gateway ? '<span class="badge gw">passerelle</span>' : "") +
+                   (h.passive ? '<span class="badge" title="Vu dans la capture, absent du scan ARP">passif</span>' : "");
+    const meta = [h.hostname, h.vendor, h.mac].filter(Boolean).map(esc).join(" · ");
+    const active = ui.detail?.type === "host" && ui.detail.ip === h.ip;
+    return `<div class="host ${sel ? "sel" : ""} ${active ? "active" : ""}" data-ip="${esc(h.ip)}"
+      title="Cocher pour filtrer · cliquer pour voir le détail">
+      <input type="checkbox" ${sel ? "checked" : ""} tabindex="-1">
+      <div><div class="ip">${esc(h.ip)}${badges}</div><div class="meta">${meta || "&nbsp;"}</div></div></div>`;
+  }).join("");
+}
+$("#hosts").onclick = e => {
+  const el = e.target.closest(".host"); if (!el || hasSelection()) return;
+  const ip = el.dataset.ip;
+  if (e.target.type === "checkbox") toggleHost(ip);
+  else openDetail({type: "host", ip});
+};
+function toggleHost(ip) {
+  ui.selected.has(ip) ? ui.selected.delete(ip) : ui.selected.add(ip);
+  renderHosts(); refreshConnections();
+}
+
+// ---- filtres -------------------------------------------------------------
+document.querySelectorAll("[data-layer]").forEach(c => c.onclick = () => {
+  const l = +c.dataset.layer; ui.layers.has(l) ? ui.layers.delete(l) : ui.layers.add(l);
+  c.classList.toggle("on"); renderProtoChips(); refreshConnections();
+});
+const BASE_PROTOS = [{layer: 4, name: "TCP"}, {layer: 4, name: "UDP"}, {layer: 4, name: "ICMP"}];
+function renderProtoChips() {
+  const all = new Map();
+  [...BASE_PROTOS, ...ui.knownProtos].forEach(p => all.set(p.name, p));
+  ui.protos.forEach(n => all.has(n) || all.set(n, {layer: 7, name: n}));
+  const list = [...all.values()].filter(p => !ui.layers.size || ui.layers.has(p.layer) || ui.protos.has(p.name))
+                                .sort((a, b) => a.layer - b.layer || a.name.localeCompare(b.name));
+  const html = list.map(p => `<span class="chip ${ui.protos.has(p.name) ? "on" : ""}" data-l="${p.layer}" data-proto="${esc(p.name)}"><span class="ln">L${p.layer}</span>${esc(p.name)}</span>`).join("");
+  if ($("#protoChips").innerHTML !== html) $("#protoChips").innerHTML = html;
+}
+$("#protoChips").onclick = e => {
+  const c = e.target.closest("[data-proto]"); if (!c) return;
+  const n = c.dataset.proto; ui.protos.has(n) ? ui.protos.delete(n) : ui.protos.add(n);
+  renderProtoChips(); refreshConnections();
+};
+let debounce;
+["#ports", "#search"].forEach(s => $(s).oninput = () => { clearTimeout(debounce); debounce = setTimeout(refreshConnections, 250); });
+$("#resetFilters").onclick = () => {
+  ui.layers.clear(); ui.protos.clear(); $("#ports").value = ""; $("#search").value = "";
+  document.querySelectorAll("[data-layer]").forEach(c => c.classList.remove("on"));
+  renderProtoChips(); refreshConnections();
+};
+
+// ---- tableau -------------------------------------------------------------
+$("#thead").innerHTML = COLS.map(([k, label]) => `<th data-k="${k}">${label}</th>`).join("");
+$("#thead").onclick = e => {
+  const k = e.target.dataset.k; if (!k) return;
+  ui.sort = {key: k, dir: ui.sort.key === k ? -ui.sort.dir : (["packets", "bytes", "last"].includes(k) ? -1 : 1)};
+  refreshConnections();
+};
+
+let lastData = null, reqSeq = 0;
+async function refreshConnections() {
+  const seq = ++reqSeq;
+  const q = new URLSearchParams({
+    hosts: [...ui.selected].join(","), layers: [...ui.layers].join(","),
+    protos: [...ui.protos].join(","), ports: $("#ports").value, q: $("#search").value,
+  });
+  const res = await fetch("/api/connections?" + q);
+  const r = await res.json();
+  if (seq !== reqSeq) return;   // une requête plus récente est partie entre-temps
+  $("#ports").style.borderColor = res.ok ? "" : "var(--bad)";
+  if (!res.ok) return;
+  lastData = r; render(r);
+}
+
+function render(r) {
+  const s = r.stats;
+  if (!s.is_admin && s.source.type !== "file") notice("Programme lancé sans droits administrateur : Npcap ne pourra ni scanner ni capturer. Relancez le terminal en administrateur.", true);
+  $("#dot").classList.toggle("on", s.running);
+  const source = s.source.type === "file" ? `Fichier ${s.source.name}` : s.running ? "Capture en cours" : "Capture arrêtée";
+  $("#statsText").textContent = `${source} · ${s.packets} paquets · ${s.connections} connexions`;
+  $("#btnStart").disabled = s.running; $("#btnStop").disabled = !s.running; $("#iface").disabled = s.running;
+  ui.knownProtos = r.protocols; renderProtoChips();
+
+  const {key, dir} = ui.sort;
+  const rows = r.connections.slice().sort((a, b) => {
+    const x = a[key], y = b[key];
+    return (typeof x === "number" ? x - y : String(x).localeCompare(String(y), undefined, {numeric: true})) * dir;
+  });
+  document.querySelectorAll("#thead th").forEach(th => {
+    th.classList.toggle("sorted", th.dataset.k === key);
+    const label = COLS.find(c => c[0] === th.dataset.k)[1];
+    th.textContent = label + (th.dataset.k === key ? (dir > 0 ? " ▲" : " ▼") : "");
+  });
+  const name = n => n ? `<span class="name">${esc(n)}</span>` : "";
+  const activeId = ui.detail?.type === "conn" ? ui.detail.id : null;
+  if (!selectingIn($(".table-wrap"))) $("#rows").innerHTML = rows.map(c => `<tr data-id="${c.id}" class="${c.id === activeId ? "active" : ""}">
+    <td><span class="ptag" data-l="${c.layer}">${esc(c.proto)}</span></td>
+    <td>${esc(c.l4)}</td>
+    <td class="mono">${esc(c.src)}${name(c.src_name)}</td><td class="mono num">${c.sport || ""}</td>
+    <td class="mono">${esc(c.dst)}${name(c.dst_name)}</td><td class="mono num">${c.dport || ""}</td>
+    <td class="info" title="${esc(c.info)}">${esc(c.info)}</td>
+    <td class="st-${esc(c.state)}">${esc(c.state)}</td>
+    <td class="num">${c.packets}</td><td class="num" title="↑ ${fmtBytes(c.bytes_out)} / ↓ ${fmtBytes(c.bytes_in)}">${fmtBytes(c.bytes)}</td>
+    <td class="num">${fmtAgo(r.now - c.last)}</td></tr>`).join("");
+  $("#emptyRows").style.display = rows.length ? "none" : "";
+  $("#emptyRows").textContent = s.connections ? "Aucune connexion ne correspond aux filtres." : "Aucune connexion. Démarrez la capture.";
+  const sel = ui.selected.size ? `${ui.selected.size} hôte(s) sélectionné(s)` : "tous les hôtes";
+  $("#footer").textContent = `${rows.length} connexion(s) affichée(s) · ${sel}` + (rows.length >= 2000 ? " · limité aux 2000 plus récentes" : "");
+}
+
+// ---- panneau de détails --------------------------------------------------
+$("#rows").onclick = e => {
+  const tr = e.target.closest("tr[data-id]");
+  if (tr && !hasSelection()) openDetail({type: "conn", id: +tr.dataset.id});
+};
+$("#drClose").onclick = closeDetail;
+document.addEventListener("keydown", e => {
+  if (e.key !== "Escape") return;
+  if (!$("#streamModal").hidden) closeStream();
+  else if (ui.detail) closeDetail();
+});
+
+function openDetail(d) {
+  ui.detail = d; ui.openPacket = null;
+  $("#drawer").hidden = false; $("#drBody").scrollTop = 0;
+  $("#drBody").innerHTML = lastDetailHtml = '<div class="empty">Chargement…</div>';
+  refreshDetail(); renderHosts(); if (lastData) render(lastData);
+}
+function closeDetail() {
+  ui.detail = null; $("#drawer").hidden = true;
+  renderHosts(); if (lastData) render(lastData);
+}
+async function refreshDetail() {
+  const d = ui.detail; if (!d) return;
+  const url = d.type === "conn" ? `/api/connection/${d.id}` : `/api/host/${encodeURIComponent(d.ip)}`;
+  const res = await fetch(url); const r = await res.json();
+  if (ui.detail !== d) return;     // un autre élément a été ouvert entre-temps
+  if (!res.ok) { $("#drTitle").textContent = "Introuvable"; $("#drBody").innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+  const html = d.type === "conn" ? connDetailHtml(r.connection, r.now) : hostDetailHtml(r.host, r.activity, r.now);
+  // Ne réécrit le panneau que s'il a changé et qu'aucun texte n'y est sélectionné.
+  if (html !== lastDetailHtml && !selectingIn($("#drBody"))) { $("#drBody").innerHTML = html; lastDetailHtml = html; }
+}
+let lastDetailHtml = "";
+
+const fmtTime = t => t ? new Date(t * 1000).toLocaleTimeString("fr-BE") : "—";
+const fmtDur = s => s < 1 ? `${Math.round(s * 1000)} ms` : s < 60 ? `${s.toFixed(1)} s` : s < 3600 ? `${Math.floor(s / 60)} min ${Math.round(s % 60)} s` : `${(s / 3600).toFixed(1)} h`;
+const scopeTag = s => s ? `<span class="scope ${esc(s)}">${esc(s)}</span>` : "";
+const kv = pairs => `<dl class="kv">${pairs.filter(p => p[1] !== undefined && p[1] !== "").map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("")}</dl>`;
+const sec = (title, body) => `<div class="dsec"><h4>${title}</h4>${body}</div>`;
+const TCP_FLAGS = {S: "SYN", A: "ACK", F: "FIN", R: "RST", P: "PSH", U: "URG", E: "ECE", C: "CWR"};
+
+function endpoint(ip, port, name, scope) {
+  return `<span class="mono">${esc(ip)}${port ? ":" + port : ""}</span>${scopeTag(scope)}` +
+         (name ? `<div class="muted">${esc(name)}</div>` : "");
+}
+
+function hexdump(hex) {
+  const bytes = hex.match(/../g) || [];
+  const lines = [];
+  for (let i = 0; i < bytes.length; i += 16) {
+    const chunk = bytes.slice(i, i + 16);
+    const ascii = chunk.map(b => { const c = parseInt(b, 16); return c >= 32 && c < 127 ? String.fromCharCode(c) : "."; }).join("");
+    lines.push(`${i.toString(16).padStart(4, "0")}  ${chunk.join(" ").padEnd(47)}  ${ascii}`);
+  }
+  return esc(lines.join("\n"));
+}
+
+function connDetailHtml(c, now) {
+  $("#drTitle").textContent = `${c.proto} · ${c.src}${c.sport ? ":" + c.sport : ""} → ${c.dst}${c.dport ? ":" + c.dport : ""}`;
+  const remote = c.dst_scope === "Internet" ? c.dst : c.src_scope === "Internet" ? c.src : null;
+  let html = sec("Protocole", `<span class="ptag" data-l="${c.layer}">${esc(c.proto)}</span>
+      <span class="muted"> couche ${c.layer} · ${esc(c.layer_name)} · sur ${esc(c.l4)}</span>
+      ${c.description ? `<div class="desc">${esc(c.description)}</div>` : ""}`);
+  html += sec("Extrémités", kv([
+    ["Client (source)", endpoint(c.src, c.sport, c.src_name, c.src_scope)],
+    ["Serveur (destination)", endpoint(c.dst, c.dport, c.dst_name, c.dst_scope)],
+    ["Info", c.info ? `<span class="mono">${esc(c.info)}</span>` : ""],
+  ]));
+  html += sec("Échanges", kv([
+    ["État", c.state ? `<span class="st-${esc(c.state)}">${esc(c.state)}</span>` : ""],
+    ["Flags TCP vus", c.tcp_flags.length ? c.tcp_flags.map(f => TCP_FLAGS[f] || f).join(", ") : ""],
+    ["Début", fmtTime(c.first)],
+    ["Dernier paquet", `${fmtTime(c.last)} <span class="muted">(il y a ${fmtAgo(now - c.last)})</span>`],
+    ["Durée", fmtDur(c.last - c.first)],
+    ["Paquets", `${c.packets} <span class="muted">(↑ ${c.packets_out} envoyés · ↓ ${c.packets_in} reçus)</span>`],
+    ["Volume", `${fmtBytes(c.bytes)} <span class="muted">(↑ ${fmtBytes(c.bytes_out)} · ↓ ${fmtBytes(c.bytes_in)})</span>`],
+    ["Débit moyen", c.last > c.first ? fmtBytes(Math.round(c.bytes / (c.last - c.first))) + "/s" : ""],
+  ]));
+  if (c.http.request) html += sec("Requête HTTP", kv([
+    ["Requête", `<span class="mono">${esc(c.http.request)}</span>`],
+    ["Host", esc(c.http.host || "")], ["User-Agent", esc(c.http.user_agent || "")],
+    ["Referer", esc(c.http.referer || "")],
+  ]));
+  if (c.dns.length) html += sec(`Requêtes DNS (${c.dns.length})`, `<table class="mini">
+    <tr><th></th><th>Nom</th><th>Type</th><th>Réponse</th></tr>
+    ${c.dns.map(q => `<tr><td>${q.response ? "↩" : "?"}</td><td class="mono">${esc(q.name)}</td><td>${esc(q.type)}</td>
+      <td class="mono">${q.response ? esc(q.answers.join(", ") || "(vide)") : '<span class="muted">question</span>'}</td></tr>`).join("")}</table>`);
+
+  const t0 = c.packet_log[0]?.t || c.first;
+  html += sec(`Derniers paquets (${c.packet_log.length} sur ${c.packets})`, `<table class="mini">
+    <tr><th>Temps</th><th></th><th class="num">Taille</th><th>Flags / type</th><th class="num">Données</th></tr>
+    ${c.packet_log.map((p, i) => `<tr class="pk" data-pk="${i}" title="Cliquer pour voir les octets">
+      <td class="mono">+${(p.t - t0).toFixed(3)} s</td>
+      <td class="dir-${p.dir}">${p.dir === "out" ? "↑ envoi" : "↓ réception"}</td>
+      <td class="num">${p.size} o</td><td class="mono">${esc(p.flags)}</td>
+      <td class="num">${p.payload_len ? p.payload_len + " o" : "—"}</td></tr>
+      ${ui.openPacket === i ? `<tr><td colspan="5">${p.preview ? `<div class="hexdump">${hexdump(p.preview)}</div>
+        ${p.payload_len > p.preview.length / 2 ? `<div class="muted">… ${p.payload_len - p.preview.length / 2} octets non affichés</div>` : ""}`
+        : '<span class="muted">Pas de données applicatives dans ce paquet.</span>'}</td></tr>` : ""}`).join("")}
+  </table>`);
+
+  html += `<div class="actions">
+    ${c.stream_bytes ? `<button data-act="stream" data-v="${c.id}" class="primary">Suivre le flux ${esc(c.l4)}</button>` : ""}
+    <a href="/api/export?scope=conn&id=${c.id}" download>Exporter ce flux (.pcap)</a>
+    <button data-act="ports" data-v="${c.dport || c.sport}">Filtrer sur le port ${c.dport || c.sport}</button>
+    <button data-act="proto" data-v="${esc(c.proto)}">Filtrer sur ${esc(c.proto)}</button>
+    ${c.info ? `<button data-act="search" data-v="${esc(c.info)}">Rechercher « ${esc(c.info)} »</button>` : ""}
+    ${remote ? `<a href="https://ipinfo.io/${encodeURIComponent(remote)}" target="_blank" rel="noopener noreferrer">Qui est ${esc(remote)} ? ↗</a>` : ""}
+  </div>`;
+  return html;
+}
+
+function hostDetailHtml(h, a, now) {
+  $("#drTitle").textContent = h.ip + (h.hostname ? ` · ${h.hostname}` : "");
+  const badges = [h.is_self && "ce PC", h.is_gateway && "passerelle (box)", h.passive && "vu passivement"].filter(Boolean);
+  let html = sec("Identité", kv([
+    ["Adresse IP", `<span class="mono">${esc(h.ip)}</span>`],
+    ["Nom", esc(h.hostname || "")],
+    ["Adresse MAC", h.mac ? `<span class="mono">${esc(h.mac)}</span>` : '<span class="muted">inconnue (pas dans le scan ARP)</span>'],
+    ["Fabricant", esc(h.vendor || "") || (h.mac ? '<span class="muted">inconnu (MAC aléatoire ?)</span>' : "")],
+    ["Rôle", badges.join(", ")],
+    ["Dernière activité", h.last_seen ? `${fmtTime(h.last_seen)} <span class="muted">(il y a ${fmtAgo(now - h.last_seen)})</span>` : ""],
+  ]));
+
+  if (!a.connections) {
+    html += sec("Activité capturée", '<span class="muted">Aucune connexion capturée pour cet hôte.</span>');
+  } else {
+    html += sec("Activité capturée", kv([
+      ["Connexions", a.connections], ["Paquets", a.packets],
+      ["Volume", `${fmtBytes(a.bytes)} <span class="muted">(↑ ${fmtBytes(a.bytes_out)} envoyés · ↓ ${fmtBytes(a.bytes_in)} reçus)</span>`],
+      ["Première", fmtTime(a.first)], ["Dernière", fmtTime(a.last)],
+    ]));
+    const maxP = a.protocols[0]?.bytes || 1;
+    html += sec("Protocoles (par volume)", `<table class="mini">${a.protocols.map(p => `<tr>
+      <td style="width:110px"><span class="ptag" data-l="${p.layer}">${esc(p.name)}</span></td>
+      <td><div class="bar"><span style="width:${Math.max(2, 100 * p.bytes / maxP)}%;background:var(--l${p.layer})"></span></div></td>
+      <td class="num" style="width:70px">${fmtBytes(p.bytes)}</td></tr>`).join("")}</table>`);
+    html += sec("Principaux correspondants", `<table class="mini">
+      <tr><th>Adresse</th><th class="num">Connexions</th><th class="num">Volume</th></tr>
+      ${a.peers.map(p => `<tr><td><span class="mono">${esc(p.ip)}</span>${scopeTag(p.scope)}
+        ${p.name ? `<div class="muted">${esc(p.name)}</div>` : ""}</td>
+        <td class="num">${p.connections}</td><td class="num">${fmtBytes(p.bytes)}</td></tr>`).join("")}</table>`);
+    const portList = list => list.map(p => `<span class="mono">${esc(p.l4)}/${p.port}</span> <span class="muted">×${p.connections}</span>`).join(" · ");
+    html += sec("Ports", kv([
+      ["Contactés (client)", portList(a.used_ports) || '<span class="muted">—</span>'],
+      ["Servis (serveur)", portList(a.served_ports) || '<span class="muted">—</span>'],
+    ]));
+  }
+
+  const ps = ui.portScans[h.ip];
+  html += sec("Ports TCP ouverts", ps === "running" ? '<span class="muted">Scan en cours…</span>'
+    : ps ? (ps.error ? `<span class="muted">${esc(ps.error)}</span>`
+      : ps.ports.length ? ps.ports.map(p => `<span class="mono">${p.port}</span>${p.service ? ` <span class="muted">${esc(p.service)}</span>` : ""}`).join(" · ") +
+        `<div class="muted">${ps.tested} ports courants testés à ${fmtTime(ps.at)}</div>`
+      : `<span class="muted">Aucun des ${ps.tested} ports courants n'est ouvert.</span>`)
+    : '<span class="muted">Pas encore testé.</span>');
+
+  html += `<div class="actions">
+    <button data-act="select" data-v="${esc(h.ip)}">${ui.selected.has(h.ip) ? "Retirer du filtre" : "Filtrer sur cet hôte"}</button>
+    <button data-act="portscan" data-v="${esc(h.ip)}" ${ps === "running" ? "disabled" : ""}>Scanner les ports courants</button>
+  </div>`;
+  return html;
+}
+
+$("#drBody").onclick = async e => {
+  const pk = e.target.closest("tr.pk");
+  if (pk) { ui.openPacket = ui.openPacket === +pk.dataset.pk ? null : +pk.dataset.pk; return refreshDetail(); }
+  const b = e.target.closest("[data-act]"); if (!b || b.tagName === "A") return;
+  const v = b.dataset.v;
+  if (b.dataset.act === "ports") { $("#ports").value = v; refreshConnections(); }
+  if (b.dataset.act === "search") { $("#search").value = v; refreshConnections(); }
+  if (b.dataset.act === "proto") { ui.protos.add(v); renderProtoChips(); refreshConnections(); }
+  if (b.dataset.act === "select") { toggleHost(v); refreshDetail(); }
+  if (b.dataset.act === "stream") openStream(+v);
+  if (b.dataset.act === "portscan") {
+    ui.portScans[v] = "running"; refreshDetail();
+    const res = await fetch(`/api/host/${encodeURIComponent(v)}/ports`, {method: "POST"});
+    ui.portScans[v] = await res.json(); refreshDetail();
+  }
+};
+
+// ---- import / export PCAP --------------------------------------------------
+function filterParams() {
+  return new URLSearchParams({
+    hosts: [...ui.selected].join(","), layers: [...ui.layers].join(","),
+    protos: [...ui.protos].join(","), ports: $("#ports").value, q: $("#search").value,
+  });
+}
+$("#exportMenu").onclick = e => {
+  const b = e.target.closest("[data-export]"); if (!b) return;
+  const q = b.dataset.export === "filtered" ? filterParams() : new URLSearchParams();
+  q.set("scope", b.dataset.export);
+  const a = document.createElement("a");
+  a.href = "/api/export?" + q; a.download = ""; a.click();
+  $("#exportMenu").open = false;
+};
+document.addEventListener("click", e => { if (!e.target.closest("#exportMenu")) $("#exportMenu").open = false; });
+$("#btnOpen").onclick = () => $("#fileInput").click();
+$("#fileInput").onchange = async () => {
+  const file = $("#fileInput").files[0]; if (!file) return;
+  $("#fileInput").value = "";
+  notice(`Lecture de ${file.name}…`);
+  const form = new FormData(); form.append("file", file);
+  const res = await fetch("/api/import", {method: "POST", body: form});
+  const r = await res.json().catch(() => ({error: "réponse invalide (fichier trop gros ?)"}));
+  if (!res.ok) return notice("Import impossible : " + r.error, true);
+  notice(`${file.name} : ${r.packets} paquets, ${r.connections} connexions. Les durées sont calculées par rapport à la fin du fichier.`);
+  closeDetail(); ui.selected.clear(); ui.seriesColor = {};
+  $("#chartWindow").value = "0";
+  pollHosts(); refreshConnections(); refreshChart();
+};
+
+// ---- « Suivre le flux » ----------------------------------------------------
+const b64ToBytes = b64 => Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+const utf8 = new TextDecoder("utf-8");
+const MAX_RENDER = 400 * 1024;          // au-delà, l'affichage est tronqué (le fichier reste complet)
+
+function bytesToText(bytes) {
+  // Les caractères de contrôle (sauf saut de ligne et tabulation) deviennent des points.
+  return utf8.decode(bytes).replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f�]/g, ".");
+}
+
+async function openStream(id) {
+  $("#streamModal").hidden = false;
+  $("#smBody").innerHTML = '<div class="empty">Chargement…</div>';
+  const res = await fetch(`/api/connection/${id}/stream`);
+  const r = await res.json();
+  if (!res.ok) { $("#smBody").innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
+  r.chunks.forEach(c => { if (c.data) c.bytes = b64ToBytes(c.data); });
+  ui.stream = r; renderStream();
+}
+function closeStream() { $("#streamModal").hidden = true; ui.stream = null; }
+$("#smClose").onclick = closeStream;
+$("#streamModal").onclick = e => { if (e.target.id === "streamModal") closeStream(); };
+$("#smView").onchange = $("#smDir").onchange = () => renderStream();
+
+function streamChunks() {
+  const dir = $("#smDir").value;
+  return ui.stream.chunks.filter(c => dir === "both" || c.dir === dir);
+}
+function renderStream() {
+  const s = ui.stream; if (!s) return;
+  $("#smTitle").textContent = `${s.proto} · ${s.src}:${s.sport} ⇄ ${s.dst}:${s.dport}`;
+  const hex = $("#smView").value === "hex";
+  let budget = MAX_RENDER, cut = false;
+  const html = streamChunks().map(c => {
+    if (c.gap) return `<pre class="chunk gap">[${c.gap} octets non capturés]</pre>`;
+    if (budget <= 0) { cut = true; return ""; }
+    const bytes = c.bytes.subarray(0, budget); budget -= bytes.length; cut ||= bytes.length < c.bytes.length;
+    const body = hex ? hexdump([...bytes].map(b => b.toString(16).padStart(2, "0")).join("")) : esc(bytesToText(bytes));
+    return `<pre class="chunk ${c.dir}">${body}</pre>`;
+  }).join("");
+  $("#smBody").innerHTML = html || '<div class="empty">Aucune donnée dans ce sens.</div>';
+  const encrypted = ["TLS", "QUIC", "SSH"].includes(s.proto);
+  $("#smStats").innerHTML = `<span class="sm-legend"><span class="out">■ client → serveur ${fmtBytes(s.bytes_out)}</span> ·
+    <span class="in">■ serveur → client ${fmtBytes(s.bytes_in)}</span></span>
+    ${s.truncated ? " · <b>flux tronqué</b> (limite mémoire atteinte)" : ""}${cut ? " · affichage limité à 400 Ko" : ""}
+    ${encrypted ? ` · contenu chiffré par ${esc(s.proto)} : illisible, c'est normal` : ""}`;
+}
+$("#smCopy").onclick = async () => {
+  const hex = $("#smView").value === "hex";
+  const text = streamChunks().map(c => c.gap ? `[${c.gap} octets non capturés]` :
+    hex ? [...c.bytes].map(b => b.toString(16).padStart(2, "0")).join(" ") : bytesToText(c.bytes)).join("\n");
+  try { await navigator.clipboard.writeText(text); $("#smCopy").textContent = "Copié ✓"; }
+  catch { $("#smCopy").textContent = "Échec de la copie"; }
+  setTimeout(() => $("#smCopy").textContent = "Copier", 1500);
+};
+
+// ---- graphique de débit ----------------------------------------------------
+// Palette catégorielle validée (sombre) ; une couleur reste attachée à sa série.
+const SERIES_COLORS = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9"];
+const OTHER_COLOR = "#898781";
+ui.seriesColor = {};                     // vue ("proto" ou "host") -> série -> couleur
+const colorMap = () => ui.seriesColor[$("#chartBy").value] ||= {};
+function assignColors(series) {
+  // Une série garde sa couleur ; une nouvelle prend une couleur jamais utilisée,
+  // à défaut une couleur absente de l'écran.
+  const map = colorMap();
+  const onScreen = new Set(series.map(k => map[k]).filter(Boolean));
+  for (const k of series) {
+    if (k === "Autres" || map[k]) continue;
+    const used = new Set(Object.values(map));
+    map[k] = SERIES_COLORS.find(c => !used.has(c)) || SERIES_COLORS.find(c => !onScreen.has(c)) || OTHER_COLOR;
+    onScreen.add(map[k]);
+  }
+}
+const seriesColor = name => name === "Autres" ? OTHER_COLOR : colorMap()[name] || OTHER_COLOR;
+function fmtRate(bytesPerSec) {
+  const bits = bytesPerSec * 8;
+  return bits >= 1e6 ? (bits / 1e6).toFixed(bits >= 1e7 ? 0 : 1) + " Mbit/s"
+       : bits >= 1e3 ? (bits / 1e3).toFixed(bits >= 1e4 ? 0 : 1) + " kbit/s" : Math.round(bits) + " bit/s";
+}
+function seriesLabel(name) {
+  const h = ui.hosts.find(h => h.ip === name);
+  return h ? `${name}${h.hostname ? " · " + h.hostname : h.is_self ? " · ce PC" : h.is_gateway ? " · box" : ""}` : name;
+}
+function niceMax(v) {
+  if (v <= 0) return 1;
+  const p = 10 ** Math.floor(Math.log10(v)); const n = v / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+
+$("#chartToggle").onclick = () => {
+  const body = $("#chartBody"); body.hidden = !body.hidden;
+  $("#chartToggle").textContent = (body.hidden ? "▸" : "▾") + " Débit";
+  $("#chartToggle").setAttribute("aria-expanded", String(!body.hidden));
+  if (!body.hidden) refreshChart();
+};
+$("#chartWindow").onchange = $("#chartBy").onchange = () => refreshChart();
+
+let chartSeq = 0;
+async function refreshChart() {
+  if ($("#chartBody").hidden) return;
+  const seq = ++chartSeq;
+  const q = new URLSearchParams({window: $("#chartWindow").value, by: $("#chartBy").value,
+                                 hosts: [...ui.selected].join(",")});
+  const r = await (await fetch("/api/timeline?" + q)).json();
+  if (seq === chartSeq) drawChart(r);
+}
+
+function drawChart(r) {
+  const box = $("#chart"), W = box.clientWidth || 600, H = box.clientHeight || 150;
+  const M = {l: 64, r: 10, t: 8, b: 20}, iw = W - M.l - M.r, ih = H - M.t - M.b;
+  const bins = r.bins, series = r.series;
+  const totals = bins.map(b => series.reduce((s, k) => s + (b.values[k] || 0), 0));
+  if (!bins.length || !totals.some(v => v > 0)) {
+    box.innerHTML = '<div id="chartEmpty">Pas encore de trafic sur cette période.</div>';
+    $("#chartLegend").innerHTML = ""; $("#chartSummary").textContent = "";
+    return;
+  }
+  assignColors(series);
+  const peak = Math.max(...totals), ymax = niceMax(peak);
+  const x = i => M.l + (bins.length === 1 ? iw / 2 : i * iw / (bins.length - 1));
+  const y = v => M.t + ih - v / ymax * ih;
+
+  // Aires empilées : la première série (la plus grosse) est en bas.
+  let acc = bins.map(() => 0), bands = "";
+  for (const k of series) {
+    const lower = acc.slice();
+    acc = acc.map((a, i) => a + (bins[i].values[k] || 0));
+    const top = acc.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+    const bottom = lower.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`).reverse();
+    bands += `<path class="band" d="M${top.join("L")}L${bottom.join("L")}Z" fill="${seriesColor(k)}"></path>`;
+  }
+  let grid = "";
+  for (let i = 0; i <= 3; i++) {
+    const v = ymax * i / 3, yy = y(v).toFixed(1);
+    grid += `<line class="${i ? "grid" : "axis"}" x1="${M.l}" x2="${W - M.r}" y1="${yy}" y2="${yy}"></line>
+             <text x="${M.l - 6}" y="${+yy + 3}" text-anchor="end">${fmtRate(v)}</text>`;
+  }
+  const ticks = Math.min(5, bins.length);
+  for (let j = 0; j < ticks; j++) {
+    const i = Math.round(j * (bins.length - 1) / Math.max(1, ticks - 1));
+    grid += `<text x="${x(i)}" y="${H - 5}" text-anchor="${j === 0 ? "start" : j === ticks - 1 ? "end" : "middle"}">${fmtTime(bins[i].t)}</text>`;
+  }
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img"
+      aria-label="Débit empilé par ${$("#chartBy").value === "host" ? "appareil" : "protocole"}">${grid}${bands}
+      <line class="cross" id="chartCross" y1="${M.t}" y2="${M.t + ih}" x1="-10" x2="-10"></line>
+      <rect id="chartHit" x="${M.l}" y="${M.t}" width="${iw}" height="${ih}" fill="transparent"></rect></svg>`;
+
+  $("#chartLegend").innerHTML = series.length < 2 ? "" : series.map(k =>
+    `<span><span class="sw" style="background:${seriesColor(k)}"></span>${esc(seriesLabel(k))}</span>`).join("");
+  const avg = totals.reduce((a, b) => a + b, 0) / totals.length;
+  $("#chartSummary").textContent = `moyenne ${fmtRate(avg)} · pic ${fmtRate(peak)}` +
+    (r.bin > 1 ? ` · pas de ${r.bin} s` : "") + (ui.selected.size ? " · appareils cochés" : "");
+
+  // Survol : ligne verticale et infobulle avec les valeurs de l'instant.
+  const hit = $("#chartHit"), cross = $("#chartCross");
+  hit.onmousemove = e => {
+    const rect = hit.getBoundingClientRect();
+    const i = Math.max(0, Math.min(bins.length - 1, Math.round((e.clientX - rect.left) / rect.width * (bins.length - 1))));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i));
+    let tip = $("#chartTip");
+    if (!tip) { tip = document.createElement("div"); tip.id = "chartTip"; $("#chartBody").appendChild(tip); }
+    const rows = series.filter(k => bins[i].values[k]).map(k =>
+      `<div><span class="sw" style="background:${seriesColor(k)}"></span>${esc(seriesLabel(k))}<span class="v">${fmtRate(bins[i].values[k])}</span></div>`);
+    tip.innerHTML = `<div class="muted">${fmtTime(bins[i].t)}${r.bin > 1 ? ` (+${r.bin} s)` : ""}</div>${rows.join("")}
+      <div><b>Total</b><span class="v"><b>${fmtRate(totals[i])}</b></span></div>`;
+    const px = x(i) / W * box.clientWidth + 12;
+    tip.style.left = Math.min(px, box.clientWidth - tip.offsetWidth - 4) + "px";
+    tip.style.top = "4px"; tip.hidden = false;
+  };
+  hit.onmouseleave = () => { cross.setAttribute("x1", -10); cross.setAttribute("x2", -10); if ($("#chartTip")) $("#chartTip").hidden = true; };
+}
+window.addEventListener("resize", () => refreshChart());
+
+ui.detail = null; ui.openPacket = null; ui.portScans = {};
+loadIfaces(); pollHosts(); refreshConnections(); refreshChart();
+setInterval(() => {
+  refreshConnections(); refreshDetail();
+  if (lastData?.stats.running) { pollHosts(); refreshChart(); }
+}, 1500);
+</script>
+</body>
+</html>

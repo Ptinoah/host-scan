@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+.claude/
+
+# Captures : elles contiennent du trafic réel, on ne les versionne pas.
+*.pcap
+*.pcapng
+*.cap
+!samples/demo.pcap
