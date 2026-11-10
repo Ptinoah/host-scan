@@ -3,6 +3,8 @@
 [![tests](https://github.com/Ptinoah/host-scan/actions/workflows/tests.yml/badge.svg)](https://github.com/Ptinoah/host-scan/actions/workflows/tests.yml)
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
+<img width="1915" height="922" alt="image" src="https://github.com/user-attachments/assets/bb1fd8fb-a123-4dfd-b72b-94139da94a4a" />
+
 A small, Wireshark-inspired network analyzer for a home network, with a local web UI.
 
 It discovers the devices on the LAN, captures traffic and groups packets into
