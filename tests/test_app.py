@@ -56,6 +56,17 @@ def test_import_rejects_garbage(client):
     assert client.get("/api/connections").get_json()["stats"]["connections"] == before
 
 
+def test_api_errors_are_json(client, monkeypatch):
+    import app
+
+    def boom():
+        raise RuntimeError("kaboom")
+    monkeypatch.setattr(app.tracker, "stop", boom)
+    res = client.post("/api/capture/stop")
+    assert res.status_code == 500 and res.get_json()["error"] == "RuntimeError: kaboom"
+    assert client.get("/api/nope").get_json()["ok"] is False
+
+
 def test_timeline_endpoint(client):
     data = client.get("/api/timeline?window=0&by=host").get_json()
     assert data["bins"] and data["series"]

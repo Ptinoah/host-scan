@@ -89,6 +89,39 @@ def test_load_rejects_non_pcap_and_keeps_data(demo_tracker, tmp_path):
     assert len(tracker.connections) == 1
 
 
+# --- thread de capture planté ---------------------------------------------------
+
+class CrashedSniffer:
+    """Imite un AsyncSniffer de Scapy dont le thread est mort sur une exception."""
+
+    def __init__(self):
+        import threading
+        self.thread = threading.Thread(target=lambda: None)
+        self.thread.start()
+        self.thread.join()
+        self.running = True               # Scapy le laisse à True après un plantage
+        self.exception = OSError("adapter removed")
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+        raise self.exception
+
+
+def test_crashed_capture_is_detected(tracker):
+    tracker.sniffer = CrashedSniffer()
+    assert tracker.running is False
+    assert "adapter removed" in tracker.error
+    assert tracker.snapshot()["stats"]["running"] is False
+
+
+def test_stop_after_crash_does_not_raise(tracker):
+    tracker.sniffer = CrashedSniffer()
+    tracker.stop()                        # ne doit pas lever d'exception
+    tracker.stop()                        # ni au deuxième clic
+    assert tracker.sniffer is None and "OSError" in tracker.error
+
+
 # --- paquets fabriqués ----------------------------------------------------------
 
 def test_syn_ack_sets_direction(tracker):

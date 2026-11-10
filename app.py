@@ -41,6 +41,19 @@ def _is_admin():
 IS_ADMIN = _is_admin()
 
 
+@app.errorhandler(Exception)
+def api_error(exc):
+    """Les routes /api répondent toujours en JSON, même en cas d'erreur imprévue."""
+    from werkzeug.exceptions import HTTPException
+    status = exc.code if isinstance(exc, HTTPException) else 500
+    if not request.path.startswith("/api/"):
+        return exc if isinstance(exc, HTTPException) else ("Erreur interne", 500)
+    if status == 500:
+        app.logger.exception("Erreur sur %s", request.path)
+    message = exc.description if isinstance(exc, HTTPException) else f"{type(exc).__name__}: {exc}"
+    return jsonify(ok=False, error=message), status
+
+
 @app.get("/")
 def index():
     return send_from_directory(app.static_folder, "index.html")
@@ -170,7 +183,7 @@ def capture_start():
 @app.post("/api/capture/stop")
 def capture_stop():
     tracker.stop()
-    return jsonify(ok=True)
+    return jsonify(ok=True, error=tracker.error)
 
 
 @app.post("/api/capture/clear")

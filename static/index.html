@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Host Scan</title>
+<link rel="icon" href="data:,">
 <style>
   :root {
     --bg: #14171c; --panel: #1b1f26; --panel2: #222832; --line: #2e3542;
@@ -283,8 +284,18 @@
 <script>
 const $ = s => document.querySelector(s);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const api = (url, body) => fetch(url, body === undefined ? {} :
-  {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)}).then(r => r.json());
+// Appel à l'API : renvoie toujours un objet, avec `error` si le serveur a échoué
+// (une page d'erreur HTML n'est pas du JSON).
+const api = async (url, body) => {
+  try {
+    const res = await fetch(url, body === undefined ? {} :
+      {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const data = await res.json().catch(() => ({}));
+    return res.ok ? data : {...data, ok: false, error: data.error || `erreur serveur ${res.status}`};
+  } catch (exc) {
+    return {ok: false, error: "serveur injoignable (le programme est-il lancé ?)"};
+  }
+};
 
 const ui = { hosts: [], selected: new Set(), layers: new Set(), protos: new Set(),
              sort: {key: "last", dir: -1}, knownProtos: [] };
@@ -306,12 +317,19 @@ function selectingIn(el) {
   return !!sel && !sel.isCollapsed && el.contains(sel.anchorNode);
 }
 const hasSelection = () => !!window.getSelection()?.toString();
+const NOTICE_DEFAULT = document.getElementById("notice").textContent;
+function offline() {
+  ui.offline = true;
+  notice("Serveur injoignable : le programme Host Scan a été arrêté ? Relancez-le, la page se reconnectera toute seule.", true);
+  $("#dot").classList.remove("on");
+}
 function notice(msg, isError) { const n = $("#notice"); if (msg) { n.textContent = msg; } n.classList.toggle("error", !!isError); }
 
 // ---- interfaces & capture -------------------------------------------------
 async function loadIfaces() {
   const current = $("#iface").value;
   const list = await api("/api/interfaces");
+  if (!Array.isArray(list)) return notice("Liste des cartes réseau indisponible : " + list.error, true);
   const keep = list.some(i => i.name === current);
   $("#iface").innerHTML = list.map(i => `<option value="${esc(i.name)}" ${(keep ? i.name === current : i.default) ? "selected" : ""}>${esc(i.label)}</option>`).join("");
 }
@@ -322,7 +340,11 @@ $("#btnStart").onclick = async () => {
     " — lancez le programme en administrateur et vérifiez que Npcap est installé.", true);
   refreshConnections();
 };
-$("#btnStop").onclick = async () => { await api("/api/capture/stop", {}); refreshConnections(); };
+$("#btnStop").onclick = async () => {
+  const r = await api("/api/capture/stop", {});
+  if (r.error) notice(r.error, true);
+  refreshConnections();
+};
 $("#btnClear").onclick = async () => { await api("/api/capture/clear", {}); refreshConnections(); };
 
 // ---- hôtes ---------------------------------------------------------------
@@ -332,7 +354,7 @@ $("#selNone").onclick = () => { ui.selected.clear(); renderHosts(); refreshConne
 
 async function pollHosts() {
   const r = await api("/api/hosts");
-  ui.hosts = r.hosts;
+  ui.hosts = r.hosts || [];
   $("#btnScan").disabled = r.scanning;
   $("#btnScan").textContent = r.scanning ? "Scan en cours…" : "Scanner le réseau";
   $("#netInfo").textContent = r.network ? `${r.network} · ${r.hosts.length} appareil(s)`
@@ -411,8 +433,15 @@ async function refreshConnections() {
     hosts: [...ui.selected].join(","), layers: [...ui.layers].join(","),
     protos: [...ui.protos].join(","), ports: $("#ports").value, q: $("#search").value,
   });
-  const res = await fetch("/api/connections?" + q);
-  const r = await res.json();
+  let res, r;
+  try {
+    res = await fetch("/api/connections?" + q);
+    r = await res.json();
+  } catch {
+    if (seq === reqSeq) offline();
+    return;
+  }
+  if (ui.offline) { ui.offline = false; notice(NOTICE_DEFAULT); }
   if (seq !== reqSeq) return;   // une requête plus récente est partie entre-temps
   $("#ports").style.borderColor = res.ok ? "" : "var(--bad)";
   if (!res.ok) return;
@@ -421,7 +450,8 @@ async function refreshConnections() {
 
 function render(r) {
   const s = r.stats;
-  if (!s.is_admin && s.source.type !== "file") notice("Programme lancé sans droits administrateur : Npcap ne pourra ni scanner ni capturer. Relancez le terminal en administrateur.", true);
+  if (s.error) notice(s.error + " — vérifiez la carte réseau choisie, puis relancez la capture.", true);
+  else if (!s.is_admin && s.source.type !== "file") notice("Programme lancé sans droits administrateur : Npcap ne pourra ni scanner ni capturer. Relancez le terminal en administrateur.", true);
   $("#dot").classList.toggle("on", s.running);
   const source = s.source.type === "file" ? `Fichier ${s.source.name}` : s.running ? "Capture en cours" : "Capture arrêtée";
   $("#statsText").textContent = `${source} · ${s.packets} paquets · ${s.connections} connexions`;
@@ -480,7 +510,8 @@ function closeDetail() {
 async function refreshDetail() {
   const d = ui.detail; if (!d) return;
   const url = d.type === "conn" ? `/api/connection/${d.id}` : `/api/host/${encodeURIComponent(d.ip)}`;
-  const res = await fetch(url); const r = await res.json();
+  let res, r;
+  try { res = await fetch(url); r = await res.json(); } catch { return; }
   if (ui.detail !== d) return;     // un autre élément a été ouvert entre-temps
   if (!res.ok) { $("#drTitle").textContent = "Introuvable"; $("#drBody").innerHTML = `<div class="empty">${esc(r.error)}</div>`; return; }
   const html = d.type === "conn" ? connDetailHtml(r.connection, r.now) : hostDetailHtml(r.host, r.activity, r.now);
@@ -771,7 +802,8 @@ async function refreshChart() {
   const seq = ++chartSeq;
   const q = new URLSearchParams({window: $("#chartWindow").value, by: $("#chartBy").value,
                                  hosts: [...ui.selected].join(",")});
-  const r = await (await fetch("/api/timeline?" + q)).json();
+  let r;
+  try { r = await (await fetch("/api/timeline?" + q)).json(); } catch { return; }
   if (seq === chartSeq) drawChart(r);
 }
 

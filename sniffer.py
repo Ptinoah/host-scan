@@ -62,19 +62,34 @@ class ConnectionTracker:
                                     prn=self._handle, store=False)
         self.sniffer.start()
         time.sleep(0.3)
-        # AsyncSniffer échoue dans son propre thread : on remonte l'erreur.
-        if not self.sniffer.running:
-            self.error = str(getattr(self.sniffer, "exception", None) or "capture impossible")
-            self.sniffer = None
+        self._check_sniffer()
 
     def stop(self):
-        if self.sniffer and self.sniffer.running:
-            self.sniffer.stop()
-        self.sniffer = None
+        sniffer, self.sniffer = self.sniffer, None
+        if sniffer is None:
+            return
+        # stop() relance l'exception d'un thread de capture planté : on la
+        # garde comme message d'erreur au lieu de la laisser remonter.
+        try:
+            if _sniffer_alive(sniffer):
+                sniffer.stop()
+        except Exception as exc:
+            self.error = _describe_error(exc)
+        if getattr(sniffer, "exception", None) is not None:
+            self.error = _describe_error(sniffer.exception)
 
     @property
     def running(self):
-        return bool(self.sniffer and self.sniffer.running)
+        self._check_sniffer()
+        return self.sniffer is not None
+
+    def _check_sniffer(self):
+        """Détecte un thread de capture mort (Scapy le laisse marqué « running »)."""
+        sniffer = self.sniffer
+        if sniffer is not None and not _sniffer_alive(sniffer):
+            self.sniffer = None
+            self.error = _describe_error(sniffer.exception) if getattr(sniffer, "exception", None) else \
+                "La capture s'est arrêtée toute seule."
 
     def clear(self):
         with self.lock:
@@ -485,6 +500,14 @@ class ConnectionTracker:
             "served_ports": [{"l4": l, "port": p, "connections": c} for (l, p), c in served.most_common(20)],
             "used_ports": [{"l4": l, "port": p, "connections": c} for (l, p), c in used.most_common(20)],
         }
+
+
+def _sniffer_alive(sniffer):
+    return sniffer.thread is not None and sniffer.thread.is_alive()
+
+
+def _describe_error(exc):
+    return f"La capture s'est arrêtée : {type(exc).__name__}: {exc}"
 
 
 def _reassemble_tcp(segments):
